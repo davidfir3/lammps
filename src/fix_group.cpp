@@ -50,6 +50,7 @@ FixGroup::FixGroup(LAMMPS *lmp, int narg, char **arg) :
   regionflag = 0;
   varflag = 0;
   propflag = 0;
+  moleculeflag = 0;
   nevery = 1;
 
   int iarg = 3;
@@ -91,6 +92,9 @@ FixGroup::FixGroup(LAMMPS *lmp, int narg, char **arg) :
       if (nevery <= 0)
         error->all(FLERR, "Illegal every value {} for dynamic group {}", nevery, dgroupid);
       iarg += 2;
+    } else if (strcmp(arg[iarg], "molecule") == 0) {
+      moleculeflag = 1;
+      iarg += 1;
     } else
       error->all(FLERR, "Unknown keyword {} in dynamic group command", arg[iarg]);
   }
@@ -219,7 +223,34 @@ void FixGroup::set_group()
   for (int i = 0; i < nlocal; i++) {
     if (mask[i] & groupbit) {
       inflag = 1;
-      if (regionflag && !region->match(x[i][0], x[i][1], x[i][2])) inflag = 0;
+      if (regionflag) {
+        if (!region->match(x[i][0], x[i][1], x[i][2])) {
+          inflag = 0;
+        } else {
+          if (moleculeflag) {
+            int *molecule = atom->molecule;
+            imageint *image = atom->image;
+            int molid = molecule[i];
+            double cm[3];
+            double unwrap[3];
+            cm[0] = cm[1] = cm[2] = 0.0;
+            int count = 0;
+            for (int j = 0; j < (atom->nlocal + atom->nghost); j++)
+              if (molecule[j] == molid) {
+                domain->unmap(x[j],image[j],unwrap);
+                cm[0] += unwrap[0];
+                cm[1] += unwrap[1];
+                cm[2] += unwrap[2];
+                count++;
+              }
+            cm[0] /= count;
+            cm[1] /= count;
+            cm[2] /= count;
+            domain->remap(cm);
+            if (!region->match(cm[0], cm[1], cm[2])) inflag = 0;
+          }
+        }
+      }
       if (varflag && var[i] == 0.0) inflag = 0;
       if (propflag) {
         if (!proptype && ivector[i] == 0) inflag = 0;
