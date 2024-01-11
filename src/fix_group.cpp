@@ -25,6 +25,7 @@
 #include "respa.h"
 #include "update.h"
 #include "variable.h"
+#include "compute_com_chunk.h"
 
 #include <cstring>
 
@@ -34,7 +35,7 @@ using namespace FixConst;
 /* ---------------------------------------------------------------------- */
 
 FixGroup::FixGroup(LAMMPS *lmp, int narg, char **arg) :
-    Fix(lmp, narg, arg), idregion(nullptr), idvar(nullptr), idprop(nullptr), region(nullptr)
+    Fix(lmp, narg, arg), idregion(nullptr), idvar(nullptr), idprop(nullptr), region(nullptr), idchunk(nullptr), cm(nullptr), cchunk(nullptr)
 {
   // dgroupbit = bitmask of dynamic group
   // group ID is last part of fix ID
@@ -93,8 +94,10 @@ FixGroup::FixGroup(LAMMPS *lmp, int narg, char **arg) :
         error->all(FLERR, "Illegal every value {} for dynamic group {}", nevery, dgroupid);
       iarg += 2;
     } else if (strcmp(arg[iarg], "molecule") == 0) {
+      if (iarg + 2 > narg) utils::missing_cmd_args(FLERR, "group dynamic molecule", error);
+      idchunk = utils::strdup(arg[iarg + 1]);
       moleculeflag = 1;
-      iarg += 1;
+      iarg += 2;
     } else
       error->all(FLERR, "Unknown keyword {} in dynamic group command", arg[iarg]);
   }
@@ -107,6 +110,9 @@ FixGroup::~FixGroup()
   delete[] idregion;
   delete[] idvar;
   delete[] idprop;
+  delete[] idchunk;
+  cm = nullptr;
+  cchunk =nullptr;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -153,6 +159,13 @@ void FixGroup::init()
     if (iprop < 0 || cols)
       error->all(FLERR, "Custom per-atom property vector {} for dynamic group {} does not exist",
                  idprop, dyngroup);
+  }
+
+  if (moleculeflag) {
+    cchunk = modify->get_compute_by_id(idchunk);
+    if (!cchunk)
+      error->all(FLERR,"Chunk/atom compute {} does not exist or is "
+                "incorrect style for fix ave/chunk",idchunk);
   }
 }
 
@@ -211,13 +224,23 @@ void FixGroup::set_group()
 
   // update region in case it has a variable dependence or is dynamic
 
-  if (regionflag) region->prematch();
+  if (regionflag) region->prematch(); 
+  if (moleculeflag) {
+    if (!(cchunk->invoked_flag & Compute::INVOKED_ARRAY)) {
+      cchunk->compute_array();
+      cchunk->invoked_flag |= Compute::INVOKED_ARRAY;
+    }
+    cm = cchunk->array;
+    if (!cm)
+      error->all(FLERR,"Chunk/atom compute {} cm array is null",idchunk);
+  }
 
   // set mask for each atom
   // only in group if in parent group, in region, variable is non-zero
 
   double **x = atom->x;
   int *mask = atom->mask;
+  int *molecule = atom->molecule;
   int inflag;
 
   for (int i = 0; i < nlocal; i++) {
@@ -228,26 +251,8 @@ void FixGroup::set_group()
           inflag = 0;
         } else {
           if (moleculeflag) {
-            int *molecule = atom->molecule;
-            imageint *image = atom->image;
             int molid = molecule[i];
-            double cm[3];
-            double unwrap[3];
-            cm[0] = cm[1] = cm[2] = 0.0;
-            int count = 0;
-            for (int j = 0; j < (atom->nlocal + atom->nghost); j++)
-              if (molecule[j] == molid) {
-                domain->unmap(x[j],image[j],unwrap);
-                cm[0] += unwrap[0];
-                cm[1] += unwrap[1];
-                cm[2] += unwrap[2];
-                count++;
-              }
-            cm[0] /= count;
-            cm[1] /= count;
-            cm[2] /= count;
-            domain->remap(cm);
-            if (!region->match(cm[0], cm[1], cm[2])) inflag = 0;
+            if (!region->match(cm[molid-1][0], cm[molid-1][1], cm[molid-1][2])) inflag = 0;
           }
         }
       }

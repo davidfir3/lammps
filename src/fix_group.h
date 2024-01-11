@@ -39,7 +39,7 @@ class FixGroup : public Fix {
 
  private:
   int gbit, gbitinverse;
-  int regionflag, varflag, propflag, moleculeflag, proptype;
+  int regionflag, varflag, propflag, proptype;
   int ivar, iprop;
   char *idregion, *idvar, *idprop;
   class Region *region;
@@ -47,6 +47,11 @@ class FixGroup : public Fix {
   int nlevels_respa;
 
   void set_group();
+
+  int moleculeflag;
+  char *idchunk;
+  double **cm;
+  class Compute *cchunk;
 };
 
 }    // namespace LAMMPS_NS
