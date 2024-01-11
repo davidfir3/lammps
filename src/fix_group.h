@@ -38,11 +38,12 @@ class FixGroup : public Fix {
   void *extract(const char *, int &) override;
 
  private:
-  int gbit, gbitinverse;
+  int gbit, gbitinverse, gbit2, gbitinverse2;
   int regionflag, varflag, propflag, proptype;
   int ivar, iprop;
-  char *idregion, *idvar, *idprop;
+  char *idregion, *idregion2, *idvar, *idprop, *idjgroup;
   class Region *region;
+  class Region *region2;
 
   int nlevels_respa;
 

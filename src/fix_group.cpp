@@ -35,7 +35,7 @@ using namespace FixConst;
 /* ---------------------------------------------------------------------- */
 
 FixGroup::FixGroup(LAMMPS *lmp, int narg, char **arg) :
-    Fix(lmp, narg, arg), idregion(nullptr), idvar(nullptr), idprop(nullptr), region(nullptr), idchunk(nullptr), cm(nullptr), cchunk(nullptr)
+    Fix(lmp, narg, arg), idregion(nullptr), idregion2(nullptr), idvar(nullptr), idprop(nullptr), region(nullptr), region2(nullptr), idchunk(nullptr), cm(nullptr), cchunk(nullptr), idjgroup(nullptr)
 {
   // dgroupbit = bitmask of dynamic group
   // group ID is last part of fix ID
@@ -94,11 +94,20 @@ FixGroup::FixGroup(LAMMPS *lmp, int narg, char **arg) :
         error->all(FLERR, "Illegal every value {} for dynamic group {}", nevery, dgroupid);
       iarg += 2;
     } else if (strcmp(arg[iarg], "molecule") == 0) {
-      if (iarg + 2 > narg) utils::missing_cmd_args(FLERR, "group dynamic molecule", error);
+      if (iarg + 5 > narg) utils::missing_cmd_args(FLERR, "group dynamic molecule", error);
       moleculeflag = 1;
+      delete[] idregion;
+      delete[] idregion2;
       delete[] idchunk;
-      idchunk = utils::strdup(arg[iarg + 1]);
-      iarg += 2;
+      delete[] idjgroup;
+      idregion = utils::strdup(arg[iarg + 1]);
+      idregion2 = utils::strdup(arg[iarg + 2]);
+      idchunk = utils::strdup(arg[iarg + 3]);
+      idjgroup = utils::strdup(arg[iarg + 4]);
+      int jgroup = group->find_or_create(idjgroup);
+      gbit2 = group->bitmask[jgroup];
+      gbitinverse2 = group->inversemask[jgroup];
+      iarg += 5;
     } else
       error->all(FLERR, "Unknown keyword {} in dynamic group command", arg[iarg]);
   }
@@ -109,11 +118,15 @@ FixGroup::FixGroup(LAMMPS *lmp, int narg, char **arg) :
 FixGroup::~FixGroup()
 {
   delete[] idregion;
+  delete[] idregion2;
   delete[] idvar;
   delete[] idprop;
   delete[] idchunk;
+  delete[] idjgroup;
   cm = nullptr;
-  cchunk =nullptr;
+  cchunk = nullptr;
+  region = nullptr;
+  region2 = nullptr;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -163,6 +176,12 @@ void FixGroup::init()
   }
 
   if (moleculeflag) {
+    region = domain->get_region_by_id(idregion);
+    if (!region)
+      error->all(FLERR, "Region {} for dynamic group {} does not exist", idregion, dyngroup);
+    region2 = domain->get_region_by_id(idregion2);
+    if (!region2)
+      error->all(FLERR, "Region2 {} for dynamic group {} does not exist", idregion2, dyngroup);
     cchunk = modify->get_compute_by_id(idchunk);
     if (!cchunk)
       error->all(FLERR,"Chunk/atom compute {} does not exist or is "
@@ -227,6 +246,8 @@ void FixGroup::set_group()
 
   if (regionflag) region->prematch(); 
   if (moleculeflag) {
+    region->prematch();
+    region2->prematch();
     if (!(cchunk->invoked_flag & Compute::INVOKED_ARRAY)) {
       cchunk->compute_array();
       cchunk->invoked_flag |= Compute::INVOKED_ARRAY;
@@ -247,20 +268,17 @@ void FixGroup::set_group()
   for (int i = 0; i < nlocal; i++) {
     if (mask[i] & groupbit) {
       inflag = 1;
-      if (regionflag) {
-        if (!region->match(x[i][0], x[i][1], x[i][2])) {
-          inflag = 0;
-        } else {
-          if (moleculeflag) {
-            int molid = molecule[i];
-            if (!region->match(cm[molid-1][0], cm[molid-1][1], cm[molid-1][2])) inflag = 0;
-          }
-        }
-      }
+      if (regionflag && !region->match(x[i][0], x[i][1], x[i][2])) inflag = 0;
       if (varflag && var[i] == 0.0) inflag = 0;
       if (propflag) {
         if (!proptype && ivector[i] == 0) inflag = 0;
         if (proptype && dvector[i] == 0.0) inflag = 0;
+      }
+      if (moleculeflag) {
+        int molid = molecule[i];
+        if (!region->match(cm[molid-1][0], cm[molid-1][1], cm[molid-1][2])) inflag = 0;
+        if (region2->match(cm[molid-1][0], cm[molid-1][1], cm[molid-1][2])) mask[i] |= gbit2;
+        else mask[i] &= gbitinverse2;
       }
     } else
       inflag = 0;
