@@ -95,8 +95,9 @@ FixGroup::FixGroup(LAMMPS *lmp, int narg, char **arg) :
       iarg += 2;
     } else if (strcmp(arg[iarg], "molecule") == 0) {
       if (iarg + 2 > narg) utils::missing_cmd_args(FLERR, "group dynamic molecule", error);
-      idchunk = utils::strdup(arg[iarg + 1]);
       moleculeflag = 1;
+      delete[] idchunk;
+      idchunk = utils::strdup(arg[iarg + 1]);
       iarg += 2;
     } else
       error->all(FLERR, "Unknown keyword {} in dynamic group command", arg[iarg]);
