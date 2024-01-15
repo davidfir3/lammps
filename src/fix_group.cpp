@@ -251,6 +251,7 @@ void FixGroup::set_group()
     if (!(cchunk->invoked_flag & Compute::INVOKED_ARRAY)) {
       cchunk->compute_array();
       cchunk->invoked_flag |= Compute::INVOKED_ARRAY;
+      for (int i; i<cchunk->size_array_rows; i++) domain->remap(cchunk->array[i]);
     }
     cm = cchunk->array;
     if (!cm)
